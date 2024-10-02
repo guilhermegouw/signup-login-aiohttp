@@ -12,6 +12,16 @@
   <body>
     <div class="container mt-5">
       <h2>Signup</h2>
+      {% if errors %}
+        <div class="alert alert-danger">
+          <ul>
+            {% for error in errors %}
+              <li>{{ error.msg }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
       <form action="/signup" method="post">
         <div class="mb-3">
           <label for="username" class="form-label">Username</label>

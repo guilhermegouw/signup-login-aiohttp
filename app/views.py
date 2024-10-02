@@ -1,24 +1,17 @@
 import aiohttp_jinja2
-import bcrypt
 from aiohttp import web
-from pydantic import BaseModel, Field, ValidationError
-
-users = {}
-
-
-class SignupForm(BaseModel):
-    username: str = Field(min_length=3, max_length=50)
-    password: str = Field(min_length=6)
-
-
-def hash_password(password):
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode(
-        "utf-8"
-    )
+from pydantic import ValidationError
+from .forms import SignupForm, LoginForm
+from .utils import hash_password, verify_password
+from app.config import SessionLocal
+from app.models import User
+from sqlalchemy.exc import IntegrityError
 
 
 @aiohttp_jinja2.template("signup.html")
 async def signup(request):
+    session = SessionLocal()
+
     if request.method == "POST":
         data = await request.post()
 
@@ -31,26 +24,27 @@ async def signup(request):
         username = form.username
         password = form.password
 
-        if username in users:
+        user = session.query(User).filter(User.username == username).first()
+        if user:
             return {"errors": [{"msg": "Username already exists"}]}
-        users[username] = hash_password(password)
+
+        hashed_password = hash_password(password)
+        new_user = User(username=username, password=hashed_password)
+        session.add(new_user)
+
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            return {"errors": [{"msg": "Username already exists"}]}
         return web.HTTPFound("/login")
     return {}
 
 
-class LoginForm(BaseModel):
-    username: str
-    password: str
-
-
-def verify_password(stored_password, provided_password):
-    return bcrypt.checkpw(
-        provided_password.encode("utf-8"), stored_password.encode("utf-8")
-    )
-
-
 @aiohttp_jinja2.template("login.html")
 async def login(request):
+    session = SessionLocal()
+
     if request.method == "POST":
         data = await request.post()
 
@@ -60,13 +54,15 @@ async def login(request):
             )
         except ValidationError as e:
             return {"errors": e.errors()}
+
         username = form.username
         password = form.password
 
-        if username not in users or not verify_password(
-            users[username], password
-        ):
+        user = session.query(User).filter(User.username == username).first()
+
+        if not user or not verify_password(user.password, password):
             return {"errors": [{"msg": "Invalid username or password"}]}
+
         return web.HTTPFound("/welcome")
     return {}
 
